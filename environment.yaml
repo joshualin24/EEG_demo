@@ -1,0 +1,16 @@
+name: ssleeg
+dependencies:
+  - numpy
+  - scipy
+  - pandas
+  - conda-forge::scikit-learn
+  - matplotlib
+  - seaborn
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::torchaudio
+  - pytorch::cudatoolkit=10.2
+  - conda-forge::pytorch-lightning
+  - pip:
+    - mne
+ 
