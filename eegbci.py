@@ -38,7 +38,7 @@ def extract_windows(
     subject: int,
     run: int,
     event_id: dict,
-    duration: float = 4.0,
+    num_steps: int = 640,
     baseline_duration: float = 0.2
 ):
     """
@@ -50,14 +50,15 @@ def extract_windows(
     subject: Subject of recording
     run: Experimental run
     event_id: Mapping from tasks/events to integer identifiers
-    duration: duration of windows that capture responses to tasks/events
-    baseline_duration: duration of baseline for drift correction
+    num_steps: Number of time steps in a window (excluding baseline segment)
+    baseline_duration: Duration of baseline for drift correction
     
     Note
     ----
     Baseline segments are not discarded from the returned windows.
     """
-    events, focal_event_id = get_events(raw, run, event_id)
+    duration = (num_steps - 1) / raw.info['sfreq']
+    events, focal_event_id = get_events(raw, run, event_id, duration)
     metadata = pd.DataFrame({
         'start': events[:, 0] / raw.info['sfreq'],  # start time of tasks
         'task': events[:, -1],  # identifier of experimental tasks
@@ -262,6 +263,7 @@ class EEGBCIDataset(ConcatDataset):
         self,
         subjects: list,
         runs: list,
+        num_steps: int,
         get_label: Callable,
         transform: Callable = None,
         target_transform: Callable = None,
@@ -272,12 +274,18 @@ class EEGBCIDataset(ConcatDataset):
         ---------
         subjects: List of subjects of interest
         runs: List of experimental runs for each subject
+        num_steps: Number of time points in each extracted window
         get_label: Function to extract label from metadata
         transform: Transformation upon data
         target_transform: Transformation upon labels
         kwargs: Keyword arguments passed to extract windows
         """
-        epochs = eegbci_epochs_collection(subjects, runs, **kwargs)
+        epochs = eegbci_epochs_collection(
+            subjects,
+            runs,
+            num_steps=num_steps,
+            **kwargs
+        )
         datasets = [
             WindowDataset(windows, get_label, transform, target_transform)
             for windows in epochs
@@ -292,6 +300,7 @@ class PretextDataModule(pl.LightningDataModule):
     def __init__(
         self,
         batch_size: int,
+        num_steps: int,
         val_ratio: float = 0.2,
         dir: str = './'
     ):
@@ -299,11 +308,13 @@ class PretextDataModule(pl.LightningDataModule):
         Arguments
         ---------
         batch_size: Batch size of training/validation sets
+        num_steps: Number of time steps per data sample
         val_ratio: Ratio to split validation set from whole data
         dir: Directory path to store downloaded data
         """
         super().__init__()
         self.batch_size = batch_size
+        self.num_steps = num_steps
         self.val_ratio = val_ratio
         self.data_dir = dir
         self.subjects = SUBJECTS  # all subjects
@@ -319,6 +330,7 @@ class PretextDataModule(pl.LightningDataModule):
         dataset = EEGBCIDataset(
             self.subjects,
             self.runs,
+            self.num_steps,
             self.get_label,
             dir=self.data_dir
         )
@@ -367,6 +379,7 @@ class DownstreamDataModule(pl.LightningDataModule):
         self,
         downstream: str,
         batch_size: int,
+        num_steps: int,
         val_ratio: float = 0.1,
         test_ratio: float = 0.1,
         dir: str = './'
@@ -376,12 +389,14 @@ class DownstreamDataModule(pl.LightningDataModule):
         ---------
         downstream: String tag of the downstream task
         batch_size: Batch size of training/validation sets
+        num_steps: Number of time steps per data sample
         val_ratio: Ratio to split validation set from whole data
         test_ratio: Ratio to split test set from whole data
         dir: Directory path to store downloaded data
         """
         super().__init__()
         self.batch_size = batch_size
+        self.num_steps = num_steps
         self.val_ratio = val_ratio
         self.test_ratio = test_ratio
         self.data_dir = dir
@@ -401,6 +416,7 @@ class DownstreamDataModule(pl.LightningDataModule):
         dataset = EEGBCIDataset(
             self.subjects,
             self.runs,
+            self.num_steps,
             self.get_label,
             dir=self.data_dir
         )

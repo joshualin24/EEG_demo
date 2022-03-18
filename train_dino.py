@@ -19,6 +19,7 @@ STUDENT_EXCLUSIVE_AUGMENTATIONS = (
 # Model architecture
 EMBEDDING_DIM = 32
 HIDDEN_DIM = 1024
+PATCH_SIZE = 4
 BOTTLENECK_DIM = 128
 PROJECTION_DIM = 512
 
@@ -30,8 +31,9 @@ CENTER_MOMENTUM = 0.9
 
 # Training
 PRETEXT_BATCH_SIZE = 64
-PRETEXT_LEARNING_RATE = 5e-4
-PRETEXT_EPOCHS = 10
+PRETEXT_NUM_STEPS = 640
+PRETEXT_LEARNING_RATE = 1e-4
+PRETEXT_EPOCHS = 20
 
 LOGS_DIR = './logs'
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -39,10 +41,10 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 
 if __name__ == '__main__':
     # Self-supervised learning model
-    student = DINOEncoder(EMBEDDING_DIM, HIDDEN_DIM, num_layers=6)
-    teacher = DINOEncoder(EMBEDDING_DIM, HIDDEN_DIM, num_layers=6)
-    student_head = DINOProjector(EMBEDDING_DIM, HIDDEN_DIM, BOTTLENECK_DIM, PROJECTION_DIM, num_layers=2)
-    teacher_head = DINOProjector(EMBEDDING_DIM, HIDDEN_DIM, BOTTLENECK_DIM, PROJECTION_DIM, num_layers=2)
+    student = DINOEncoder(EMBEDDING_DIM, HIDDEN_DIM, PATCH_SIZE)
+    teacher = DINOEncoder(EMBEDDING_DIM, HIDDEN_DIM, PATCH_SIZE)
+    student_head = DINOProjector(EMBEDDING_DIM, HIDDEN_DIM, BOTTLENECK_DIM, PROJECTION_DIM)
+    teacher_head = DINOProjector(EMBEDDING_DIM, HIDDEN_DIM, BOTTLENECK_DIM, PROJECTION_DIM)
     model = DINO(
         student,
         teacher,

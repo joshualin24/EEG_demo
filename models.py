@@ -4,9 +4,9 @@
 import torch
 from torch import nn
 import pytorch_lightning as pl
-import math
 from typing import Optional, Type
 from collections.abc import Sequence
+from utils import PositionalEncoding, WeightNorm
 from augs import RandomAugmentationPair
 
 
@@ -22,9 +22,10 @@ class DINOEncoder(nn.Module):
         self,
         embedding_dim: int,
         hidden_dim: int,
+        patch_size: int,
         num_channels: int = 64,
         num_layers: int = 12,
-        num_heads: int = 8,
+        num_heads: int = 6,
         cls_token: Optional[torch.Tensor] = None,
         norm_layer: Type = nn.LayerNorm
     ):
@@ -33,31 +34,36 @@ class DINOEncoder(nn.Module):
         ---------
         embedding_dim: Dimension of output embedding
         hidden_dim: Dimension of feedforward module
+        patch_size: Number of time steps to divide data into patches
         num_channels: Number of channels in input data
         num_layers: Number of transformer encoder layers
         num_heads: Number of multi-attention heads
         cls_token: One-dimensional embedding of the [CLS] token
         norm_layer: Type of normalization layer applied to output embedding
 
-        Note
-        ----
-        If specified, `cls_token` must have length of `embedding_dim`.
+        Notes
+        -----
+        1. The number of time points in input data must be divisible by
+           `patch_size`.
+        2. If specified, `cls_token` must have length of `embedding_dim`.
         """
         super().__init__()
-        self.linear = nn.Linear(num_channels, embedding_dim, bias=False)
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 embedding_dim,
                 num_heads,
                 dim_feedforward=hidden_dim,
+                dropout=0.0,
                 activation='gelu',
                 batch_first=True,
                 norm_first=True
             ),
             num_layers
         )
-        self.register_buffer(
-            'token',
+        self.patch_size = patch_size
+        self.patch_dim = num_channels * patch_size
+        self.linear = nn.Linear(self.patch_dim, embedding_dim, bias=False)
+        self.cls_token = nn.Parameter(  # learnable [CLS] token
             cls_token if cls_token else torch.zeros(embedding_dim)
         )
         self.pos_encoder = PositionalEncoding(embedding_dim)
@@ -77,13 +83,16 @@ class DINOEncoder(nn.Module):
     
     def prepare_tokens(self, data: torch.Tensor):
         """
-        Linearly combine data into embedding dimension, add [CLS] token, and
-        perform positional encoding.
+        Split data into patches, linearly combine each patch into the given
+        embedding dimension, add [CLS] token, and perform positional encoding.
         """
-        embedding = self.linear(data.transpose(-2, -1))
-        cls_token = self.token[(None,) * (len(data.size())-1)]  # add dimension
+        shape = data.size()
+        assert shape[-1] % self.patch_size == 0, 'data not divisible by patches'
+        patches = data.view(*shape[:-2], self.patch_dim, -1).transpose(-2, -1)
+        embedding = self.linear(patches)
+        cls_token = self.cls_token[(None,) * (len(shape)-1)]  # add dimensions
         embedding = torch.cat([
-            cls_token.expand(*data.size()[:-2], -1, -1),
+            cls_token.expand(*shape[:-2], -1, -1),
             embedding
         ], dim=-2)
         embedding = self.pos_encoder(embedding)
@@ -121,8 +130,9 @@ class DINOProjector(nn.Module):
             self.mlp = nn.Sequential(*first, *middle, *last)
         else:
             self.mlp = nn.Linear(embedding_dim, bottleneck_dim)
-        self.linear = nn.utils.weight_norm(
-            nn.Linear(bottleneck_dim, projection_dim, bias=False)
+        self.linear = WeightNorm(
+            nn.Linear(bottleneck_dim, projection_dim, bias=False),
+            ['weight']
         )
     
     def forward(self, embedding: torch.Tensor):
@@ -131,35 +141,6 @@ class DINOProjector(nn.Module):
         embedding = nn.functional.normalize(embedding, dim=-1)  # L2 norm.-ed
         embedding = self.linear(embedding)
         return embedding
-
-
-class PositionalEncoding(nn.Module):
-    """
-    Position encoding layer for transformer-based modules.
-
-    This implementation is adopted from the Pytorch tutorial
-    https://pytorch.org/tutorials/beginner/transformer_tutorial.html.
-    """
-
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pos = torch.arange(max_len).unsqueeze(1)
-        factor = -math.log(10000.0) / d_model
-        div_even = torch.exp(torch.arange(0, d_model, 2) * factor)
-        div_odd = torch.exp((torch.arange(1, d_model, 2) - 1) * factor)
-        pe = torch.zeros(1, max_len, d_model)
-        pe[0, :, 0::2] = torch.sin(pos * div_even)
-        pe[0, :, 1::2] = torch.cos(pos * div_odd)
-        self.register_buffer('pe', pe)
-
-    def forward(self, data: torch.Tensor):
-        """
-        Input must have dimension `(batch, ..., sequence, embedding)`.
-        """
-        data = data + self.pe[:, :data.size(-2)]
-        return self.dropout(data)
 
 
 class StudentTeacherLoss(nn.Module):
@@ -278,6 +259,7 @@ class DINO(pl.LightningModule):
            `student_head`/`teacher_head`.
         """
         super().__init__()
+        self.save_hyperparameters()
         self.student = nn.Sequential(student, student_head)
         self.teacher = nn.Sequential(teacher, teacher_head)
         self.encoder = student
@@ -429,6 +411,7 @@ class SeqCLR(pl.LightningModule):
         weight_decay: Weight decay of optimizer
         """
         super().__init__()
+        self.save_hyperparameters()
         self.encoder = encoder
         self.projector = projector
         self.augmentation_pair = RandomAugmentationPair(augmentations)
