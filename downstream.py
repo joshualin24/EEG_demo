@@ -4,6 +4,7 @@
 import torch
 from torch import nn
 import pytorch_lightning as pl
+from typing import Optional
 
 
 class LinearClassifier(pl.LightningModule):
@@ -73,7 +74,8 @@ class KNNClassifier:
         encoder: nn.Module,
         num_classes: int = 2,
         num_neighbors: int = 20,
-        tau: float = 0.07
+        tau: float = 0.07,
+        device: Optional[str] = None
     ):
         """
         Arguments
@@ -82,27 +84,34 @@ class KNNClassifier:
         num_classes: Number of classes to classify data into
         num_neighbors: Number of nearest neighbors to infer labels of data
         tau: Sharpness parameter of scores for different classes
+        device: Device to place encoder and data 
         """
-        self.encoder = encoder
+        self.encoder = encoder.to(device=device).eval()
         self.num_classes = num_classes
         self.num_neighbors = num_neighbors
         self.tau = tau
-        self.bank = torch.empty(0)  # memory bank of data representation
-        self.bank_labels = torch.empty(0).int()  # memory bank of labels
+        self.device = device
+        # Memory banks for data reprsentation and labels
+        self.bank = torch.empty(0, device=device)
+        self.bank_labels = torch.empty(0).int()
     
+    @torch.no_grad()
     def fit(self, batch: tuple):
         """Append memory bank by representation and labels of training data."""
         data, labels = batch
+        data = data.to(device=self.device)
         self.bank = torch.cat([self.bank, self.encoder(data)], dim=0)
         self.bank_labels = torch.cat([self.bank_labels, labels], dim=0)
         return self
     
+    @torch.no_grad()
     def predict(self, batch: tuple):
         """
         Return scores of different classes based on cosine similarity with
         training data representation.
         """
         data, _ = batch
+        data = data.to(device=self.device)
         similarity = nn.functional.cosine_similarity(
             self.encoder(data).unsqueeze(1),
             self.bank.unsqueeze(0),
@@ -125,7 +134,7 @@ class KNNClassifier:
         """Return accuracy of the current batch."""
         scores = self.predict(batch)
         _, labels = batch
-        acc = (scores.argmax(-1) == labels).mean().item()
+        acc = (scores.argmax(-1).cpu() == labels).float().mean().item()
         return acc
 
 
