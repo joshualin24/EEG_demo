@@ -3,6 +3,7 @@
 
 import pytorch_lightning as pl
 import os
+import torch
 from augs import Identity, TimeMasking
 from models import DINOEncoder, DINOProjector, DINO
 from eegbci import PretextDataModule
@@ -37,6 +38,8 @@ PRETEXT_EPOCHS = 20
 
 LOGS_DIR = './logs'
 os.makedirs(LOGS_DIR, exist_ok=True)
+MODELS_DIR = './pretrained'
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 
 if __name__ == '__main__':
@@ -73,3 +76,9 @@ if __name__ == '__main__':
 
     # Training and evaluation
     trainer.fit(model, datamodule=pretext_datamodule)
+
+    # Output pretrained model
+    torch.save(
+        DINO.load_from_checkpoint(checkpoint.best_model_path),
+        os.path.join(MODELS_DIR, 'dino.pt')
+    )
