@@ -8,4 +8,4 @@ torch
 torchvision
 torchaudio
 pytorch-lightning
-mne
+mne==0.24.1
