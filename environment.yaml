@@ -12,5 +12,5 @@ dependencies:
   - pytorch::cudatoolkit=10.2
   - conda-forge::pytorch-lightning
   - pip:
-    - mne=0.24.1
+    - mne==0.24.1
  
