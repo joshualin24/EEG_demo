@@ -126,6 +126,16 @@ class RandomAugmentationPair:
         return aug_1(data), aug_2(data)
 
 
+class UnitScale:
+    """Scale data into unit standard deviation."""
+
+    def __init__(self):
+        pass
+    
+    def __call__(self, data: torch.Tensor):
+        return data / data.std(dim=-1, keepdim=True)
+
+
 def main():
     """Empty main."""
     return

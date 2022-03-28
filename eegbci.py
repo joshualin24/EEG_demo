@@ -1,6 +1,7 @@
 """Utility module for the EEGBCI motor/imagery dataset."""
 
 
+from multiprocessing.pool import RUN
 import numpy as np
 import pandas as pd
 import mne
@@ -9,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset, Subset
 import pytorch_lightning as pl
 import sklearn
 from typing import Callable, Optional
+from augs import UnitScale
 
 # Integer identifier of experimental tasks/events
 EVENT_ID = {
@@ -118,25 +120,25 @@ def get_events(
             'T1': event_id['movement/left/fist'],
             'T2': event_id['movement/right/fist']
         }
-        return mne.events_from_annotations(raw, event_id=event_id)
+        return mne.events_from_annotations(raw, event_id, verbose=False)
     elif run in (4, 8, 12):
         event_id = {
             'T1': event_id['imagery/left/fist'],
             'T2': event_id['imagery/right/fist']
         }
-        return mne.events_from_annotations(raw, event_id=event_id)
+        return mne.events_from_annotations(raw, event_id, verbose=False)
     elif run in (5, 9, 13):
         event_id = {
             'T1': event_id['movement/both/fist'],
             'T2': event_id['movement/both/foot']
         }
-        return mne.events_from_annotations(raw, event_id=event_id)
+        return mne.events_from_annotations(raw, event_id, verbose=False)
     elif run in (6, 10, 14):
         event_id = {
             'T1': event_id['imagery/both/fist'],
             'T2': event_id['imagery/both/foot']
         }
-        return mne.events_from_annotations(raw, event_id=event_id)
+        return mne.events_from_annotations(raw, event_id, verbose=False)
     else:
         raise ValueError('invalid experimental run.')
 
@@ -159,10 +161,10 @@ def drop_bad_epochs(
     """
     # Drop epochs with fewer steps than the pre-specified number
     mask = (raw.n_times - 1 - epochs.events[:, 0]) < epoch_steps
-    epochs.drop(mask, reason='USER: TOO SHORT')
+    epochs.drop(mask, reason='USER: TOO SHORT', verbose=False)
     # Drop epochs which lack baseline data
     mask = (epochs.events[:, 0] - baseline_steps) < 0
-    epochs.drop(mask, reason='USER: NO BASELINE')
+    epochs.drop(mask, reason='USER: NO BASELINE', verbose=False)
 
 
 def download_eegbci(
@@ -205,7 +207,10 @@ def eegbci_epochs_collection(
     """
     epochs_list = [
         extract_windows(
-            mne.io.read_raw_edf(mne.datasets.eegbci.load_data(subject, run, path=dir)[0]),
+            mne.io.read_raw_edf(
+                mne.datasets.eegbci.load_data(subject, run, path=dir)[0],
+                verbose=False
+            ),
             subject,
             run,
             EVENT_ID,
@@ -332,7 +337,8 @@ class PretextDataModule(pl.LightningDataModule):
             self.runs,
             self.num_steps,
             self.get_label,
-            dir=self.data_dir
+            dir=self.data_dir,
+            transform=UnitScale()
         )
         num_val = int(len(dataset) * self.val_ratio)
         self.trainset, self.valset = torch.utils.data.random_split(
@@ -353,7 +359,7 @@ def runs_classindex_by_case(downstream):
     to class indices according to the given case of downstream task.
     """
     if downstream == 'annotation':
-        runs = list(range(1, 14 + 1))
+        runs = RUNS
         class_ind = {ind: ind for ind in EVENT_ID.values()}
     elif downstream == 'left/right':
         runs = [3, 4, 7, 8, 11, 12]
@@ -400,7 +406,7 @@ class DownstreamDataModule(pl.LightningDataModule):
         self.val_ratio = val_ratio
         self.test_ratio = test_ratio
         self.data_dir = dir
-        self.subjects = list(range(1, 109 + 1))  # all subjects
+        self.subjects = SUBJECTS
         self.runs, class_ind = runs_classindex_by_case(downstream)
         # Function to get label for classification
         self.get_label = lambda meta: class_ind[meta['task'].values[0]]
@@ -418,7 +424,8 @@ class DownstreamDataModule(pl.LightningDataModule):
             self.runs,
             self.num_steps,
             self.get_label,
-            dir=self.data_dir
+            dir=self.data_dir,
+            transform=UnitScale()
         )
         num_val = int(len(dataset) * self.val_ratio)
         num_test = int(len(dataset) * self.test_ratio)
