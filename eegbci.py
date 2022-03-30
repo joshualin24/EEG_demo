@@ -109,12 +109,13 @@ def get_events(
     between will not be considered.
     """
     if run in (1, 2):
+        annotation = 'rest/eye-open'if run == 1 else 'rest/eye-closed'
         events = mne.make_fixed_length_events(
             raw,
-            id=run,
+            id=event_id[annotation],
             duration=fixed_length_duration
         )
-        return events, {'T0': run}
+        return events, {'T0': event_id[annotation] }
     elif run in (3, 7, 11):
         event_id = {
             'T1': event_id['movement/left/fist'],
