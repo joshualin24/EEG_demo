@@ -109,7 +109,7 @@ def get_events(
     between will not be considered.
     """
     if run in (1, 2):
-        annotation = 'rest/eye-open'if run == 1 else 'rest/eye-closed'
+        annotation = 'rest/eye-open' if run == 1 else 'rest/eye-closed'
         events = mne.make_fixed_length_events(
             raw,
             id=event_id[annotation],
