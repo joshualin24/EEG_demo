@@ -9,3 +9,4 @@ torchvision
 torchaudio
 pytorch-lightning
 mne==0.24.1
+pooch
